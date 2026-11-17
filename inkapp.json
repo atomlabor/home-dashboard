@@ -4,7 +4,7 @@
     {
       "app_id": "homedash",
       "name": "Home Dashboard",
-      "version": "1.4.0",
+      "version": "1.3.2",
       "description": "Home Assistant on e-ink: lights and switches as tiles, sensors, Spotify with cover and controls, and a lock screen with live values.",
       "devices": [
         "X4 Pro",

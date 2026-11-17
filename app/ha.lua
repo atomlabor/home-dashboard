@@ -14,7 +14,7 @@ M.LOCKNET = "ha_locknet.json" -- how often the lock screen fetches ({ min = n })
 M.RATES = { 1, 2, 3, 5, 10, 15, 30, 60 }   -- choices in minutes
 M.RATE_DEFAULT = 5
 M.MAX_PINS = 6
-M.VERSION = "1.4.0"
+M.VERSION = "1.3.2"
 M.COVER = "ha_cover.bin"     -- last album cover bytes, shared with the lock screen
 M.TOGGLE = { light = true, switch = true, input_boolean = true, fan = true }
 -- used until something is chosen on the "Lock screen" page
