@@ -6,6 +6,7 @@
 local HA = require("app.ha")
 local I18N = require("app.i18n")
 local Icon = require("app.icons")
+local Sec = require("app.security")
 
 local S = { xs = 4, sm = 8, md = 16, lg = 24, xl = 40, margin = 20, radius = 12, radius_lg = 16,
   line = 2, line_bold = 3, hit = 44 }
@@ -15,7 +16,7 @@ local NAV_H = 80
 local F, T
 local lang = "en"
 local tab = 1                      -- 1 home, 2 music, 3 sensors, 4 settings
-local screen                       -- nil | "setup" | "pins" | "visible"
+local screen                       -- nil | "setup" | "pins" | "visible" | "order" | "pin" | "rate"
 local page = {}
 local npages = {}
 local focus = 1
@@ -34,6 +35,24 @@ local sig = ""
 local busy, alive, polling = false, true, false
 local hits = {}
 local files_path
+
+-- PIN lock
+local sec = {}
+local unlocked = true
+local paused_at
+local pin_mode                     -- "unlock" | "new1" | "new2" | "off" | "change"
+local pin_buf, pin_first, pin_msg = "", nil, nil
+local pin_changing = false
+local pin_return                   -- screen to go back to after unlocking
+local tries, wait_until = 0, 0
+
+-- own order of tiles
+local order, order_own = {}, false
+local order_kind = 1               -- 1 switches, 2 sensors
+local order_per = 6
+
+-- lock screen network rate
+local lock_rate = 5
 
 local function view() return screen or ("tab" .. tab) end
 
@@ -54,6 +73,8 @@ end
 local function set_list(l)
   list = l
   sensors, toggles = HA.split_list(l)
+  sensors = HA.ordered(sensors, order)
+  toggles = HA.ordered(toggles, order)
   by_id = {}
   for _, e in ipairs(l) do by_id[e.id] = e end
   media = HA.media(l)
@@ -87,6 +108,8 @@ end
 local function save_lock(ctx)
   local s = HA.lock_snap(list, pins)
   s.at = at
+  local now = HA.now_s(ctx)
+  if now > 0 then s.t = now end
   HA.save(ctx, HA.LOCK, s)
 end
 
@@ -219,8 +242,173 @@ local function toggle_pin(ctx, e)
   end
   note = nil
   HA.save(ctx, HA.PINS, pins)
+  if not order_own then
+    order = default_order()
+    set_list(list)
+  end
   save_lock(ctx)
   ctx:invalidate()
+end
+
+-- order ----------------------------------------------------------------------
+
+-- without an own order the lock-screen values lead, as before
+local function default_order()
+  local d = {}
+  for _, id in ipairs(pins) do
+    local e = by_id[id]
+    if not e or e.dom == "sensor" then d[#d + 1] = id end
+  end
+  return d
+end
+
+local function move_item(ctx, e, d)
+  local items = (order_kind == 1) and toggles or sensors
+  local i
+  for k, o in ipairs(items) do if o == e then i = k end end
+  local j = i and (i + d)
+  if not j or j < 1 or j > #items then return end
+  items[i], items[j] = items[j], items[i]
+  local seen, new = {}, {}
+  local function add(id) if not seen[id] then seen[id] = true; new[#new + 1] = id end end
+  for _, o in ipairs(toggles) do add(o.id) end
+  for _, o in ipairs(sensors) do add(o.id) end
+  for _, id in ipairs(order) do add(id) end
+  order, order_own = new, true
+  HA.save(ctx, HA.ORDER, order)
+  filter_visible()
+  local before = page.order or 1
+  page.order = (j - 1) // order_per + 1
+  ctx:invalidate(page.order ~= before and "full" or nil)
+end
+
+local function reset_order(ctx)
+  if ctx.storage and ctx.storage.remove then pcall(ctx.storage.remove, ctx.storage, HA.ORDER) end
+  order, order_own = default_order(), false
+  set_list(list)
+  page.order = 1
+  ctx:invalidate("full")
+end
+
+-- PIN lock -------------------------------------------------------------------
+
+local function now_ms(ctx)
+  if ctx.clock and ctx.clock.millis then
+    local ok, v = pcall(ctx.clock.millis, ctx.clock)
+    if ok and type(v) == "number" then return v end
+  end
+  return HA.now_s(ctx) * 1000
+end
+
+local function waiting(ctx)
+  local left = wait_until - now_ms(ctx)
+  if left <= 0 then return nil end
+  return (left + 999) // 1000
+end
+
+local function tick_wait(ctx)
+  ctx:after(1000, function(c)
+    c = c or ctx
+    if screen ~= "pin" then return end
+    c:invalidate()
+    if waiting(c) then tick_wait(c) else pin_msg = nil end
+  end)
+end
+
+local function pin_start(ctx, mode)
+  if screen ~= "pin" then pin_return = screen end
+  pin_mode = mode
+  pin_buf, pin_first, pin_msg = "", nil, nil
+  screen = "pin"
+  focus = 1
+  ctx:invalidate("full")
+end
+
+local function lock(ctx)
+  if not Sec.enabled(sec) then return end
+  unlocked = false
+  pin_start(ctx, "unlock")
+end
+
+local function pin_done(ctx, msg)
+  pin_mode, pin_buf, pin_first, pin_msg = nil, "", nil, nil
+  pin_changing = false
+  screen = nil
+  tab = 4
+  note = msg
+  focus = 1
+  ctx:invalidate("full")
+end
+
+local function pin_submit(ctx)
+  local mode = pin_mode
+  if mode == "unlock" or mode == "off" or mode == "change" then
+    if Sec.check(sec, pin_buf) then
+      tries = 0
+      pin_buf, pin_msg = "", nil
+      if mode == "unlock" then
+        unlocked = true
+        screen = pin_return
+        pin_mode, pin_return = nil, nil
+        focus = 1
+        ctx:invalidate("full")
+      elseif mode == "off" then
+        Sec.clear(sec)
+        Sec.save(HA, ctx, sec)
+        pin_done(ctx, T.pin_off)
+      else
+        pin_changing = true
+        pin_mode = "new1"
+        ctx:invalidate("full")
+      end
+    else
+      tries = tries + 1
+      pin_buf = ""
+      if tries >= Sec.MAX_TRIES then
+        tries = 0
+        wait_until = now_ms(ctx) + Sec.WAIT_S * 1000
+        pin_msg = nil
+        tick_wait(ctx)
+      else
+        pin_msg = string.format(T.pin_tries, Sec.MAX_TRIES - tries)
+      end
+      ctx:invalidate()
+    end
+  elseif mode == "new1" then
+    if #pin_buf < Sec.MIN_LEN then return end
+    pin_first, pin_buf, pin_msg = pin_buf, "", nil
+    pin_mode = "new2"
+    ctx:invalidate("full")
+  elseif mode == "new2" then
+    if pin_buf == pin_first then
+      Sec.set_pin(ctx, sec, pin_buf)
+      Sec.save(HA, ctx, sec)
+      unlocked = true
+      pin_done(ctx, pin_changing and T.pin_changed or T.pin_on)
+    else
+      pin_mode, pin_buf, pin_first = "new1", "", nil
+      pin_msg = T.pin_mismatch
+      ctx:invalidate("full")
+    end
+  end
+end
+
+local function pin_key(ctx, d)
+  if waiting(ctx) then return end
+  if #pin_buf >= Sec.MAX_LEN then return end
+  pin_buf = pin_buf .. d
+  if pin_mode ~= "new1" and pin_mode ~= "new2" then pin_msg = nil end
+  ctx:invalidate()
+  local auto = (pin_mode == "unlock" or pin_mode == "off" or pin_mode == "change") and sec.len
+  if pin_mode == "new2" and pin_first then auto = #pin_first end
+  if auto and #pin_buf >= auto then
+    ctx:after(150, function(c) pin_submit(c or ctx) end)
+  end
+end
+
+local function pin_cancel(ctx)
+  if pin_mode == "unlock" then return end
+  pin_done(ctx, nil)
 end
 
 -- setup ----------------------------------------------------------------------
@@ -321,6 +509,18 @@ function on_load(ctx)
   files_path = HA.files_path(ctx)
   touch = (ctx.input and ctx.input.pointer) and true or false
   keymode = not touch
+  sec = Sec.load(HA, ctx)
+  if ctx.files and ctx.files.read then
+    local ok, s = pcall(ctx.files.read, ctx.files, "pin_reset.txt")
+    if ok and type(s) == "string" then
+      Sec.clear(sec)
+      Sec.save(HA, ctx, sec)
+      if ctx.files.remove then pcall(ctx.files.remove, ctx.files, "pin_reset.txt") end
+    end
+  end
+  lock_rate = HA.lock_rate(ctx)
+  local ol = HA.load(ctx, HA.ORDER)
+  if type(ol) == "table" and #ol > 0 then order, order_own = ol, true end
   local hl = HA.load(ctx, HA.HIDDEN)
   if type(hl) == "table" then
     for _, id in ipairs(hl) do hidden[id] = true end
@@ -332,22 +532,32 @@ function on_load(ctx)
     at = c.at
   end
   pins = HA.load_pins(ctx)
+  if not order_own then
+    order = default_order()
+    set_list(list)
+  end
   local cm = HA.load(ctx, "ha_cover.json")
   if cm and cm.pic and media[1] and media[1].pic == cm.pic and ctx.storage then
     local ok, bytes = pcall(ctx.storage.read, ctx.storage, HA.COVER)
     if ok and type(bytes) == "string" then set_cover(ctx, cm.pic, bytes) end
   end
   if not HA.ready() then screen = "setup" end
+  if Sec.enabled(sec) then lock(ctx) end
   refresh(ctx)
   schedule(ctx)
 end
 
 function on_pause(ctx)
   alive = false
+  paused_at = now_ms(ctx)
 end
 
 function on_resume(ctx)
   alive = true
+  if Sec.enabled(sec) and unlocked then
+    local away = paused_at and (now_ms(ctx) - paused_at) or math.huge
+    if away < 0 or away >= (sec.delay or 0) * 1000 then lock(ctx) end
+  end
   schedule(ctx)
   ctx:invalidate()
 end
@@ -524,17 +734,12 @@ end
 
 -- views ----------------------------------------------------------------------
 
+-- the big card shows the first three visible sensors in the user's order
 local function hero_items()
   local out = {}
-  for _, id in ipairs(pins) do
-    local e = by_id[id]
-    if e and e.dom == "sensor" and not hidden[e.id] and #out < 3 then out[#out + 1] = e end
-  end
   for _, e in ipairs(vis_sensors) do
     if #out >= 3 then break end
-    local dup = false
-    for _, o in ipairs(out) do if o == e then dup = true end end
-    if not dup then out[#out + 1] = e end
+    out[#out + 1] = e
   end
   return out
 end
@@ -567,7 +772,7 @@ local function draw_home(ctx, g, x, y, w, bottom)
         value_unit(g, bx, by + 20 + lh(F.title) // 2 + 12, s, F.title, F.tiny, bw, 15)
       end
     end
-    add_hit("hero", x, y, w, h, nil, false)
+    add_hit("hero", x, y, w, h, nil, true)
     y = y + h + S.lg
   end
   local m = media[1]
@@ -747,30 +952,65 @@ local function draw_rows(ctx, g, x, y, w, rows)
   return y
 end
 
+local function delay_label(d)
+  if not d or d == 0 then return T.delay_now end
+  return string.format(T.delay_min, d // 60)
+end
+
 local function draw_settings(ctx, g, x, y, w, bottom)
   local n = #pins
   local total = #sensors + #toggles
   local shown = #vis_sensors + #vis_toggles
-  local rows = {
-    { head = T.g_conn },
-    { id = "server", icon = "globe", title = T.s_server, value = HA.host(), chev = true },
-    { id = "account", icon = "user", title = T.s_account, value = account_text(), chev = true },
-    { id = "test", icon = "refresh", title = T.s_test,
-      value = err and I18N.error(T, err) or (at and string.format(T.asof, at) or "") },
-    { head = T.g_display },
-    { id = "visible", icon = "grid", title = T.s_visible, value = string.format(T.pins_count, shown, total), chev = true },
-    { id = "lang", icon = "globe", title = T.lang, value = T.lang_name, chev = true },
-    { head = T.g_lock },
+  local groups = {
+    { { head = T.g_conn },
+      { id = "server", icon = "globe", title = T.s_server, value = HA.host(), chev = true },
+      { id = "account", icon = "user", title = T.s_account, value = account_text(), chev = true },
+      { id = "test", icon = "refresh", title = T.s_test,
+        value = err and I18N.error(T, err) or (at and string.format(T.asof, at) or "") } },
+    { { head = T.g_display },
+      { id = "visible", icon = "grid", title = T.s_visible, value = string.format(T.pins_count, shown, total), chev = true },
+      { id = "order", icon = "down", title = T.s_order, chev = true },
+      { id = "lang", icon = "globe", title = T.lang, value = T.lang_name, chev = true } },
   }
+  local lockg = { { head = T.g_lock } }
   if ctx.lockscreen then
-    rows[#rows + 1] = { id = "lock", icon = "lock", title = T.use_lock, switch = ctx.lockscreen:is_default() }
+    lockg[#lockg + 1] = { id = "lock", icon = "lock", title = T.use_lock, switch = ctx.lockscreen:is_default() }
   end
-  rows[#rows + 1] = { id = "pins", icon = "home", title = T.s_pins,
+  lockg[#lockg + 1] = { id = "pins", icon = "home", title = T.s_pins,
     value = string.format(T.pins_count, n, HA.MAX_PINS), chev = true }
-  local yy = draw_rows(ctx, g, x, y, w, rows)
-  if yy + S.md + lh(F.tiny) <= bottom then
-    text(g, x + w // 2, yy + S.md + lh(F.tiny) // 2, "Home Dashboard " .. HA.VERSION, F.tiny, { align = "center" })
+  lockg[#lockg + 1] = { id = "lock_rate", icon = "refresh", title = T.s_lock_rate,
+    value = string.format(T.rate_every, lock_rate), chev = true }
+  groups[#groups + 1] = lockg
+  local on = Sec.enabled(sec)
+  local secg = { { head = T.g_sec },
+    { id = "pinlock", icon = "key", title = T.s_pin, switch = on } }
+  if on then
+    secg[#secg + 1] = { id = "pin_change", icon = "key", title = T.s_pin_change, chev = true }
+    secg[#secg + 1] = { id = "pin_delay", icon = "refresh", title = T.s_pin_delay, value = delay_label(sec.delay) }
+    secg[#secg + 1] = { id = "lock_now", icon = "lock", title = T.s_lock_now }
   end
+  groups[#groups + 1] = secg
+
+  -- whole groups per page
+  local function height(gr)
+    return 44 + (#gr - 1) * 56
+  end
+  local avail = bottom - y - 28
+  local pages, cur, used = {}, {}, 0
+  for _, gr in ipairs(groups) do
+    local h = height(gr)
+    if #cur > 0 and used + h > avail then
+      pages[#pages + 1] = cur
+      cur, used = {}, 0
+    end
+    for _, r in ipairs(gr) do cur[#cur + 1] = r end
+    used = used + h
+  end
+  if #cur > 0 then pages[#pages + 1] = cur end
+  npages.tab4 = #pages
+  page.tab4 = math.max(1, math.min(page.tab4 or 1, #pages))
+  y = section(g, x, y, w, T.nav[4], "Home Dashboard " .. HA.VERSION, "tab4")
+  draw_rows(ctx, g, x, y - 24, w, pages[page.tab4])
 end
 
 local function top_bar(ctx, g, W, title, can_back)
@@ -860,6 +1100,225 @@ local function button(g, x, y, w, h, label, icon, primary, kind)
   add_hit(kind, x, y, w, h, nil, true)
 end
 
+local PIN_KEYS = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "del", "0", "ok" }
+
+local function draw_pin(ctx, g, W, H)
+  local M = S.margin
+  local w = W - 2 * M
+  local y = M
+  if pin_mode ~= "unlock" then
+    g:circle(M + 22, y + 22, 22, { line_width = S.line })
+    Icon.draw(g, "back", M + 10, y + 10, 24, 15)
+    add_hit("pin_cancel", M, y, 44, 44)
+  end
+  local ms = 72
+  local mx = (W - ms) // 2
+  g:rect(mx, y, ms, ms, { radius = 20, fill = true })
+  Icon.draw(g, "lock", mx + 14, y + 12, 44, 0)
+  y = y + ms + S.md
+  local title, sub = T.pin_enter, T.pin_enter_sub
+  if pin_mode == "new1" then title, sub = T.pin_new, T.pin_new_sub
+  elseif pin_mode == "new2" then title, sub = T.pin_repeat, T.pin_repeat_sub
+  elseif pin_mode == "off" then title, sub = T.pin_current, T.pin_cur_off
+  elseif pin_mode == "change" then title, sub = T.pin_current, T.pin_cur_change end
+  local wait = waiting(ctx)
+  if wait then sub = string.format(T.pin_wait, wait)
+  elseif pin_msg then sub = pin_msg end
+  text(g, W // 2, y + lh(F.title) // 2, fit(F.title, title, w), F.title, { align = "center", bold = true })
+  y = y + lh(F.title) + S.xs
+  for _, l in ipairs(HA.wrap(F.small, sub, w, 2)) do
+    text(g, W // 2, y + lh(F.small) // 2, l, F.small, { align = "center", bold = (pin_msg ~= nil or wait ~= nil) })
+    y = y + lh(F.small)
+  end
+  y = y + S.md
+  -- dots
+  local n = #pin_buf
+  local slots = n
+  if pin_mode == "unlock" or pin_mode == "off" or pin_mode == "change" then slots = sec.len or Sec.MIN_LEN
+  elseif pin_mode == "new2" and pin_first then slots = #pin_first
+  else slots = math.max(Sec.MIN_LEN, n) end
+  slots = math.min(Sec.MAX_LEN, math.max(slots, n))
+  local d, step = 20, 34
+  local dx = W // 2 - ((slots - 1) * step) // 2
+  for i = 1, slots do
+    if i <= n then g:circle(dx + (i - 1) * step, y + d // 2, d // 2, { fill = true })
+    else g:circle(dx + (i - 1) * step, y + d // 2, d // 2, { line_width = S.line }) end
+  end
+  y = y + d + S.lg
+  -- keypad
+  local gap = 12
+  local kw = math.min(120, (w - 2 * gap) // 3)
+  local kh = math.max(52, math.min(84, (H - M - y - 3 * gap) // 4))
+  local kx = (W - (3 * kw + 2 * gap)) // 2
+  local verify = (pin_mode == "unlock" or pin_mode == "off" or pin_mode == "change")
+  local manual = (pin_mode == "new1") or (pin_mode == "new2" and not pin_first) or (verify and not sec.len)
+  for i, k in ipairs(PIN_KEYS) do
+    local cx = kx + ((i - 1) % 3) * (kw + gap)
+    local cy = y + ((i - 1) // 3) * (kh + gap)
+    if k == "del" then
+      if n > 0 and not wait then
+        Icon.draw(g, "del", cx + kw // 2 - 18, cy + kh // 2 - 18, 36, 15)
+        add_hit("pin_del", cx, cy, kw, kh, nil, true)
+      end
+    elseif k == "ok" then
+      if manual and n >= Sec.MIN_LEN and not wait then
+        g:rect(cx, cy, kw, kh, { radius = S.radius_lg, fill = true })
+        text(g, cx + kw // 2, cy + kh // 2, T.pin_ok, F.title, { align = "center", bold = true, color = 0 })
+        add_hit("pin_ok", cx, cy, kw, kh, nil, true)
+      end
+    else
+      if wait then
+        g:rect(cx, cy, kw, kh, { radius = S.radius_lg, line_width = 1 })
+        text(g, cx + kw // 2, cy + kh // 2, k, F.big, { align = "center", color = 8 })
+      else
+        g:rect(cx, cy, kw, kh, { radius = S.radius_lg, line_width = S.line })
+        text(g, cx + kw // 2, cy + kh // 2, k, F.big, { align = "center", bold = true, tabular = true })
+        add_hit("pin_key", cx, cy, kw, kh, { d = k }, true)
+      end
+    end
+  end
+end
+
+local function draw_order(ctx, g, W, H)
+  local M = S.margin
+  local y = top_bar(ctx, g, W, T.order_title, true)
+  local w = W - 2 * M
+  -- switches | sensors
+  local th = 44
+  local half = (w - S.sm) // 2
+  for i = 1, 2 do
+    local tx = M + (i - 1) * (half + S.sm)
+    local sel = (i == order_kind)
+    if sel then g:rect(tx, y, half, th, { radius = th // 2, fill = true })
+    else g:rect(tx, y, half, th, { radius = th // 2, line_width = S.line }) end
+    text(g, tx + half // 2, y + th // 2, fit(F.body, T.order_tabs[i], half - S.md), F.body,
+      { align = "center", bold = sel, color = sel and 0 or 15 })
+    add_hit("okind", tx, y, half, th, { i = i }, true)
+  end
+  y = y + th + S.md
+  local hint = (order_kind == 2) and T.order_hero or T.order_hint
+  for _, l in ipairs(HA.wrap(F.small, hint, w, 2)) do
+    text(g, M, y + lh(F.small) // 2, l, F.small)
+    y = y + lh(F.small)
+  end
+  y = y + S.sm
+  local items = (order_kind == 1) and toggles or sensors
+  local row_h = 60
+  local reset_h = 48
+  order_per = math.max(1, (H - M - y - 52 - reset_h - S.md) // row_h)
+  local first = paginate("order", #items, order_per)
+  y = section(g, M, y, w, string.format("%d", #items), nil, "order")
+  local rows = 0
+  local gy = y
+  for k = 1, order_per do
+    local idx = first + k
+    local e = items[idx]
+    if not e then break end
+    rows = rows + 1
+    local mid = y + row_h // 2
+    local bs = 40
+    local dnx = M + w - S.sm - bs
+    local upx = dnx - S.sm - bs
+    text(g, M + S.md, mid, tostring(idx), F.small, { bold = true, tabular = true })
+    Icon.draw(g, Icon.for_entity(e), M + S.md + 30, mid - 12, 24, 15)
+    local tx = M + S.md + 64
+    local name = e.name
+    local nmax = upx - S.sm - tx
+    if hidden[e.id] then
+      text(g, tx, mid - 10, fit(F.body, name, nmax), F.body)
+      text(g, tx, mid + 14, fit(F.tiny, T.order_hidden, nmax), F.tiny)
+    else
+      text(g, tx, mid, fit(F.body, name, nmax), F.body)
+    end
+    if idx > 1 then
+      g:circle(upx + bs // 2, mid, bs // 2, { line_width = S.line })
+      Icon.draw(g, "up", upx + 8, mid - 12, 24, 15)
+      add_hit("mv", upx - 2, y + 4, bs + 4, row_h - 8, { e = e, d = -1 }, true)
+    end
+    if idx < #items then
+      g:circle(dnx + bs // 2, mid, bs // 2, { line_width = S.line })
+      Icon.draw(g, "down", dnx + 8, mid - 12, 24, 15)
+      add_hit("mv", dnx - 2, y + 4, bs + 4, row_h - 8, { e = e, d = 1 }, true)
+    end
+    if k < order_per and items[idx + 1] then g:rect(M + S.md, y + row_h - 1, w - 2 * S.md, 1, { fill = true }) end
+    y = y + row_h
+  end
+  if rows > 0 then g:rect(M, gy, w, rows * row_h, { radius = S.radius_lg, line_width = S.line }) end
+  local ry = H - M - reset_h
+  button(g, M, ry, w, reset_h, T.order_reset, "refresh", false, "oreset")
+end
+
+local function rate_index()
+  for i, v in ipairs(HA.RATES) do if v == lock_rate then return i end end
+  return 1
+end
+
+local function set_rate(ctx, i)
+  i = math.max(1, math.min(#HA.RATES, i or 1))
+  local v = HA.RATES[i]
+  if v == lock_rate then return end
+  lock_rate = v
+  HA.save(ctx, HA.LOCKNET, { min = v })
+  ctx:invalidate()
+end
+
+-- nearest stop for an x position on the slider track
+local function rate_at(r, x)
+  local n = #HA.RATES
+  local step = (r.w - 2 * r.pad) / (n - 1)
+  local i = math.floor(((x or r.x) - r.x - r.pad) / step + 0.5) + 1
+  return math.max(1, math.min(n, i))
+end
+
+local function draw_rate(ctx, g, W, H)
+  local M = S.margin
+  local y = top_bar(ctx, g, W, T.rate_title, true)
+  local w = W - 2 * M
+  for _, l in ipairs(HA.wrap(F.small, T.rate_hint, w, 4)) do
+    text(g, M, y + lh(F.small) // 2, l, F.small)
+    y = y + lh(F.small)
+  end
+  y = y + S.xl
+  text(g, W // 2, y + lh(F.big) // 2, string.format(T.rate_every, lock_rate), F.big, { align = "center", bold = true })
+  y = y + lh(F.big) + S.xl
+  -- minus / plus
+  local bs = 52
+  local cy = y + bs // 2
+  local ci = rate_index()
+  g:circle(M + bs // 2, cy, bs // 2, { line_width = S.line })
+  g:rect(M + bs // 2 - 12, cy - 1, 24, 3, { fill = true })
+  add_hit("rate_dec", M, y, bs, bs, nil, true)
+  g:circle(W - M - bs // 2, cy, bs // 2, { line_width = S.line })
+  g:rect(W - M - bs // 2 - 12, cy - 1, 24, 3, { fill = true })
+  g:rect(W - M - bs // 2 - 1, cy - 12, 3, 24, { fill = true })
+  add_hit("rate_inc", W - M - bs, y, bs, bs, nil, true)
+  -- track
+  local tx = M + bs + S.md
+  local tw_ = W - M - bs - S.md - tx
+  local pad = 16
+  local n = #HA.RATES
+  local x0, x1 = tx + pad, tx + tw_ - pad
+  local function px(i) return x0 + ((x1 - x0) * (i - 1)) // (n - 1) end
+  local kx = px(ci)
+  g:rect(x0, cy - 1, x1 - x0, 2, { fill = true })
+  g:rect(x0, cy - 3, kx - x0, 6, { radius = 3, fill = true })
+  for i = 1, n do
+    local sx = px(i)
+    g:rect(sx - 1, cy + 10, 2, 8, { fill = true })
+    text(g, sx, cy + 32, tostring(HA.RATES[i]), F.tiny, { align = "center", bold = (i == ci), tabular = true })
+  end
+  g:circle(kx, cy, 16, { fill = true })
+  g:circle(kx, cy, 13, { fill = true, color = 0 })
+  g:circle(kx, cy, 6, { fill = true })
+  local th = 72
+  add_hit("rate_track", tx, cy - th // 2, tw_, th, { pad = pad }, false)
+  y = cy + 48 + S.xl
+  for _, l in ipairs(HA.wrap(F.small, T.rate_low, w, 3)) do
+    text(g, M, y + lh(F.small) // 2, l, F.small)
+    y = y + lh(F.small)
+  end
+end
+
 local function draw_setup(ctx, g, W, H)
   local M = S.margin
   local w = W - 2 * M
@@ -930,6 +1389,12 @@ function on_draw(ctx, g)
     draw_pins(ctx, g, W, H)
   elseif screen == "visible" then
     draw_visible(ctx, g, W, H)
+  elseif screen == "pin" then
+    draw_pin(ctx, g, W, H)
+  elseif screen == "order" then
+    draw_order(ctx, g, W, H)
+  elseif screen == "rate" then
+    draw_rate(ctx, g, W, H)
   else
     local y = header(ctx, g, W)
     local bottom = navbar(ctx, g, W, H) - S.md
@@ -1013,6 +1478,18 @@ local function row_action(ctx, r)
   elseif id == "all_on" then set_all_visible(ctx, true)
   elseif id == "all_off" then set_all_visible(ctx, false)
   elseif id == "pin" then toggle_pin(ctx, r.e)
+  elseif id == "order" then
+    page.order = 1
+    open(ctx, "order")
+  elseif id == "pinlock" then
+    if Sec.enabled(sec) then pin_start(ctx, "off") else pin_changing = false; pin_start(ctx, "new1") end
+  elseif id == "pin_change" then pin_start(ctx, "change")
+  elseif id == "pin_delay" then
+    sec.delay = Sec.next_delay(sec.delay or 0)
+    Sec.save(HA, ctx, sec)
+    ctx:invalidate()
+  elseif id == "lock_now" then lock(ctx)
+  elseif id == "lock_rate" then open(ctx, "rate")
   elseif id == "lang" then
     lang = (lang == "en") and "de" or "en"
     T = I18N.get(lang)
@@ -1042,6 +1519,28 @@ local function activate(ctx, r)
   elseif k == "login" then start_login(ctx)
   elseif k == "token" then paste_token(ctx)
   elseif k == "file" then read_file(ctx)
+  elseif k == "hero" then
+    order_kind = 2
+    page.order = 1
+    open(ctx, "order")
+  elseif k == "okind" then
+    if order_kind ~= r.i then
+      order_kind = r.i
+      page.order = 1
+      focus = 1
+      ctx:invalidate("full")
+    end
+  elseif k == "mv" then move_item(ctx, r.e, r.d)
+  elseif k == "oreset" then reset_order(ctx)
+  elseif k == "rate_dec" then set_rate(ctx, rate_index() - 1)
+  elseif k == "rate_inc" then set_rate(ctx, rate_index() + 1)
+  elseif k == "rate_track" then set_rate(ctx, rate_at(r, r.tap_x))
+  elseif k == "pin_key" then pin_key(ctx, r.d)
+  elseif k == "pin_del" then
+    pin_buf = pin_buf:sub(1, -2)
+    ctx:invalidate()
+  elseif k == "pin_ok" then pin_submit(ctx)
+  elseif k == "pin_cancel" then pin_cancel(ctx)
   end
 end
 
@@ -1055,6 +1554,12 @@ end
 
 function on_input(ctx, ev)
   if ev.type == "pointer" then
+    -- dragging the rate slider
+    if screen == "rate" and (ev.phase == "down" or ev.phase == "move") then
+      local r = hit_at(ev.x or -1, ev.y or -1)
+      if r and r.kind == "rate_track" then set_rate(ctx, rate_at(r, ev.x)) end
+      return true
+    end
     if ev.phase ~= "up" then return true end
     local gst = ev.gesture
     if gst == "swipe_left" or gst == "swipe_up" then go_page(ctx, 1) return true end
@@ -1062,13 +1567,21 @@ function on_input(ctx, ev)
     if gst ~= "tap" and gst ~= "double_tap" and gst ~= nil then return true end
     if keymode then keymode = false; ctx:invalidate() end
     local r = hit_at(ev.x or -1, ev.y or -1)
-    if r then activate(ctx, r) end
+    if r then
+      r.tap_x = ev.x
+      activate(ctx, r)
+    end
     return true
   end
 
   if ev.type ~= "key" then return false end
   local key = ev.key
   if key == "back" then
+    if screen == "pin" then
+      if pin_mode == "unlock" then return false end
+      if ev.phase == "up" then pin_cancel(ctx) end
+      return true
+    end
     if screen and (screen ~= "setup" or HA.ready()) then
       if ev.phase == "up" then close_screen(ctx) end
       return true

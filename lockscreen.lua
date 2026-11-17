@@ -1,6 +1,6 @@
 -- Lock screen: date, large clock, up to six Home Assistant values as tiles and
--- the lights that are on. The clock redraws every minute (interval_sec); every
--- net_interval_sec the session goes online and fetches fresh values with a
+-- the lights that are on. The clock redraws every minute (interval_sec); as
+-- often as the user chose (1-60 min) the session goes online and fetches fresh values with a
 -- single template request (after renewing the sign-in if needed). On failure
 -- the stored values stay on screen with an "offline" marker top right and the
 -- time of the last success.
@@ -22,6 +22,12 @@ function on_load(ctx)
   HA.init(ctx)
 
   if not (ctx.lock and ctx.lock.net and ctx.net) then return end
+  -- the manifest allows the network every minute; the user's choice decides
+  -- whether this session goes online. Skipping keeps Wi-Fi off.
+  local now = HA.now_s(ctx)
+  local every = HA.lock_rate(ctx) * 60
+  if now > 0 and type(snap.t) == "number" and now >= snap.t and now - snap.t < every - 20 then return end
+  snap.t = now > 0 and now or nil
   if not HA.ready() then
     snap.err = "config"
     return
@@ -30,8 +36,10 @@ function on_load(ctx)
   local tpl = (#pins > 0) and HA.tpl_lock(pins) or HA.TPL_DISCOVER
   HA.template(ctx, tpl, function(ctx, list, e)
     if list then
+      local t = snap.t
       snap = HA.lock_snap(list, pins)
       snap.at = HA.hhmm(ctx)
+      snap.t = t
       local m = snap.media
       local meta = HA.load(ctx, "ha_cover.json")
       if m and m.pic ~= "" and not (meta and meta.pic == m.pic) then

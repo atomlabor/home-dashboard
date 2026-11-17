@@ -125,6 +125,20 @@ function draw.back(g, x, y, s, c, bg, lw)
   g:polyline(P(x, y, s, { 0.64, 0.18, 0.32, 0.5, 0.64, 0.82 }), { line_width = lw + 1, color = c })
 end
 
+function draw.up(g, x, y, s, c, bg, lw)
+  g:polyline(P(x, y, s, { 0.18, 0.64, 0.5, 0.32, 0.82, 0.64 }), { line_width = lw + 1, color = c })
+end
+
+function draw.down(g, x, y, s, c, bg, lw)
+  g:polyline(P(x, y, s, { 0.18, 0.36, 0.5, 0.68, 0.82, 0.36 }), { line_width = lw + 1, color = c })
+end
+
+function draw.del(g, x, y, s, c, bg, lw)
+  g:polygon(P(x, y, s, { 0.04, 0.5, 0.3, 0.2, 0.94, 0.2, 0.94, 0.8, 0.3, 0.8 }), { fill = true, color = c })
+  g:line(x + R(0.46, s), y + R(0.36, s), x + R(0.74, s), y + R(0.64, s), { line_width = lw + 1, color = bg })
+  g:line(x + R(0.74, s), y + R(0.36, s), x + R(0.46, s), y + R(0.64, s), { line_width = lw + 1, color = bg })
+end
+
 function draw.check(g, x, y, s, c, bg, lw)
   g:polyline(P(x, y, s, { 0.18, 0.52, 0.4, 0.74, 0.82, 0.28 }), { line_width = lw + 1, color = c })
 end

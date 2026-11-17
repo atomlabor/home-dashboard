@@ -9,8 +9,12 @@ M.CACHE = "ha_cache.json"   -- last full list (app)
 M.LOCK = "ha_lock.json"     -- last lock-screen snapshot
 M.PINS = "ha_pins.json"     -- entity ids chosen for the lock screen
 M.HIDDEN = "ha_hidden.json" -- entity ids hidden from the dashboard
+M.ORDER = "ha_order.json"   -- own order of tiles (entity ids)
+M.LOCKNET = "ha_locknet.json" -- how often the lock screen fetches ({ min = n })
+M.RATES = { 1, 2, 3, 5, 10, 15, 30, 60 }   -- choices in minutes
+M.RATE_DEFAULT = 5
 M.MAX_PINS = 6
-M.VERSION = "1.3.0"
+M.VERSION = "1.4.0"
 M.COVER = "ha_cover.bin"     -- last album cover bytes, shared with the lock screen
 M.TOGGLE = { light = true, switch = true, input_boolean = true, fan = true }
 -- used until something is chosen on the "Lock screen" page
@@ -175,6 +179,8 @@ local function now_s(ctx)
   local days = era * 146097 + yoe * 365 + yoe // 4 - yoe // 100 + doy - 719468
   return days * 86400 + t.hour * 3600 + t.minute * 60 + (t.second or 0)
 end
+
+M.now_s = now_s
 
 local function enc(v)
   return (tostring(v):gsub("[^%w%-%._~]", function(ch) return string.format("%%%02X", ch:byte()) end))
@@ -499,6 +505,24 @@ function M.split_list(list)
     return a.name:lower() < b.name:lower()
   end)
   return sensors, toggles
+end
+
+-- sort a list of entities by the user's order; unknown ones keep their place after
+function M.lock_rate(ctx)
+  local r = M.load(ctx, M.LOCKNET)
+  local m = r and tonumber(r.min)
+  for _, v in ipairs(M.RATES) do if v == m then return m end end
+  return M.RATE_DEFAULT
+end
+
+function M.ordered(items, order)
+  local rank = {}
+  for i, id in ipairs(order or {}) do rank[id] = i end
+  local out = {}
+  for i, e in ipairs(items) do out[i] = { e = e, r = rank[e.id] or (100000 + i) } end
+  table.sort(out, function(a, b) return a.r < b.r end)
+  for i, o in ipairs(out) do out[i] = o.e end
+  return out
 end
 
 -- snapshot for the lock screen: up to MAX_PINS tiles and the lights that are on

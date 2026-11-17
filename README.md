@@ -4,7 +4,7 @@
 
 Your Home Assistant, calm and readable on e-ink. An unofficial Home Assistant companion for the **Xteink X4 Pro** and **X4 Classic**, built with InkApp AI Studio.
 
-**[Download homedash.xtapp](dist/homedash.xtapp)** · version 1.3.1
+**[Download homedash.xtapp](dist/homedash.xtapp)** · version 1.4.0
 
 [![Support me on Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20this%20app-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/atomlabor)
 
@@ -14,7 +14,9 @@ Your Home Assistant, calm and readable on e-ink. An unofficial Home Assistant co
 - **Music** – the current album cover, title and artist with previous, play/pause and next. Works with Spotify and other media players in Home Assistant.
 - **Sensors** – temperature, humidity, CO2, power, energy, light and battery at a glance.
 - **Settings** – choose which sensors and switches appear on the dashboard and which values go on the lock screen. English and German.
-- **Lock screen** – date, a large clock, up to six values, what is playing with its cover and which lights are on. The clock updates every minute; while locked the app fetches fresh values every 5 minutes. If the network fails, the last values stay with an offline marker.
+- **Lock screen** – date, a large clock, up to six values, what is playing with its cover and which lights are on. The clock updates every minute. How often the locked device fetches fresh values is up to you: a slider in Settings goes from every minute to once an hour (default 5 minutes). Between fetches Wi-Fi stays off. If the network fails, the last values stay with an offline marker.
+- **Your own order** – arrange switches and sensors with the arrows in Settings → Order of tiles. The first three sensors fill the big card on Home; tap the card to rearrange them.
+- **PIN lock** – optional. With it on, the app opens with a keypad and shows nothing until the right PIN is entered. Choose whether it locks every time or after 1, 5 or 15 minutes away, change the PIN or lock right away. After five wrong tries the keypad pauses for 30 seconds. Only a salted hash is stored, never the digits.
 
 While the app is open it refreshes every 30 seconds.
 
@@ -34,6 +36,10 @@ token = your-long-lived-access-token
 ```
 
 Never commit your own `homeassistant.txt`; it holds your key in plain text.
+
+### Forgot the PIN?
+
+Put an empty file named `pin_reset.txt` into the app folder and open the app. The PIN is removed and the file is deleted.
 
 ## Install
 
