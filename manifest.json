@@ -1,0 +1,28 @@
+{
+  "api": "2.23",
+  "app_id": "homedash",
+  "display_name": "Home Dashboard",
+  "version": "1.3.1",
+  "author": "atomlabor",
+  "description": "Your Home Assistant on e-ink: a hero card with your key values, lights and switches as tiles you tap to toggle, what is playing on Spotify with cover and controls, all sensors at a glance, refreshed live every 30 seconds while the app is open. Set it up right on the device: sign in with your Home Assistant user name (only a sign-in key is kept, never the password), paste a token or drop a homeassistant.txt into the app folder. The lock screen shows a large clock, up to six values you choose what is playing and the lights that are on; while locked it uses the network every 5 minutes.",
+  "entry": "index.lua",
+  "permissions": [
+    "net"
+  ],
+  "lockscreen": {
+    "entry": "lockscreen.lua",
+    "interval_sec": 60,
+    "net": true,
+    "net_interval_sec": 300
+  },
+  "requires": [],
+  "display": {
+    "orientation": "portrait"
+  },
+  "app_icon_s": "app_icon_s",
+  "preload_assets": [
+    "app_icon_s",
+    "app_icon_l"
+  ],
+  "app_icon_l": "app_icon_l"
+}

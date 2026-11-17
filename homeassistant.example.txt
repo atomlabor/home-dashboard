@@ -1,0 +1,2 @@
+url = https://your-home-assistant.example
+token = paste-your-long-lived-access-token-here
