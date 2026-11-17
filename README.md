@@ -6,6 +6,8 @@ Your Home Assistant, calm and readable on e-ink. An unofficial Home Assistant co
 
 **[Download homedash.xtapp](dist/homedash.xtapp)** · version 1.3.1
 
+[![Support me on Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20this%20app-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/atomlabor)
+
 ## What it does
 
 - **Home** – a large card with your key values, what is playing right now, and your lights and switches as tiles. Tap a tile to switch it; lights that are on are shown inverted.
