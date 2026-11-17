@@ -1,0 +1,90 @@
+# UI text. One key<TAB>text per line; {name} is filled from the ctx.i18n:t params, \n is a line break.
+keys.back	Back
+keys.ok	OK
+keys.left	Left
+keys.right	Right
+keys.up	UP
+keys.down	DOWN
+home.from	{native} · from {city}
+home.hint.touch	Tap or swipe for another card
+home.hint.keys	Left/Right: card · Up/Down · OK
+home.play	Play & collect stamps
+home.album	Album
+home.back	Turn over
+album.title	Stamp album
+album.count	{n} of {total} collected
+album.locked	Not yet: guess it right in a round
+album.hint.touch	Tap a stamp to see its postcard · Back for home
+album.hint.keys	Arrows pick a stamp · OK opens · Back for home
+back.title	Back of the postcard
+back.greeting	Hello!\nThis postcard comes from\n{name}
+back.model	Model
+back.firmware	Firmware
+back.battery	Battery
+back.screen	Screen
+back.input	Input
+back.caps	Capabilities
+back.stamps	Stamps
+back.percent	{percent}%
+back.charging	{percent}%, charging
+back.unknown	unknown
+back.screen.value	{width} × {height} · {levels} tones
+back.input.touch	Touch + keys
+back.input.keys	Keys
+back.none	none
+back.stamps.value	{n} of {total} · best {best}
+back.lock	Use as lock screen
+back.lock.done	This is your lock screen
+back.hint.touch	Tap the card or press Back to turn it over
+back.hint.keys	OK: use as lock screen · Back: turn over
+back.hint.plain	Press OK or Back to turn it over
+quiz.progress	Question {n} / {total}
+quiz.best	Best {best}
+quiz.score	Score {score} · Streak {streak}
+quiz.ask	Which language is this?
+quiz.right	Correct!
+quiz.stamp	New stamp: {lang}!
+quiz.wrong	It's {lang}
+quiz.streak	{streak} in a row!
+quiz.done.title	Round over
+quiz.done.record	New record!
+quiz.done.body	{score} of {total} right · stamps {stamps} / {all}
+quiz.done.result	{score} / {total}
+quiz.done.stamps	Stamps {stamps} / {all}
+quiz.done.touch	Tap to play again
+quiz.done.keys	OK to play again
+quiz.again	Play again
+quiz.home	Home
+lock.date	{weekday}, {month_name} {day}
+lock.footer	Today's hello · a new language every day
+weekday.0	Sunday
+weekday.1	Monday
+weekday.2	Tuesday
+weekday.3	Wednesday
+weekday.4	Thursday
+weekday.5	Friday
+weekday.6	Saturday
+month.1	January
+month.2	February
+month.3	March
+month.4	April
+month.5	May
+month.6	June
+month.7	July
+month.8	August
+month.9	September
+month.10	October
+month.11	November
+month.12	December
+lang.zh	Chinese
+lang.en	English
+lang.ja	Japanese
+lang.fr	French
+lang.es	Spanish
+lang.de	German
+lang.it	Italian
+lang.pt	Portuguese
+lang.ru	Russian
+lang.el	Greek
+lang.vi	Vietnamese
+lang.tr	Turkish

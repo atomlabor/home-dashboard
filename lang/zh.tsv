@@ -1,0 +1,78 @@
+# 界面文字。每行 key<TAB>文字；{名字} 由 ctx.i18n:t 的参数替换，\n 是换行。
+keys.back	返回
+keys.ok	确定
+keys.left	左
+keys.right	右
+keys.up	上
+keys.down	下
+home.from	{native} · 寄自 {city}
+home.hint.touch	点按或左滑换一张，右滑回上一张
+home.hint.keys	左右键换一张 · 上下键选按钮 · OK 确定
+home.play	玩一局，集邮票
+home.album	集邮册
+home.back	翻到背面
+album.title	集邮册
+album.count	已集 {n} / {total}
+album.locked	还没集到，玩一局猜对它
+album.hint.touch	点按邮票看那张明信片 · 返回键回主页
+album.hint.keys	方向键选邮票 · OK 查看 · 返回键回主页
+back.title	明信片背面
+back.greeting	你好！\n这张明信片寄自\n{name}
+back.model	型号
+back.firmware	固件
+back.battery	电量
+back.screen	屏幕
+back.input	输入
+back.caps	可选能力
+back.stamps	集邮
+back.percent	{percent}%
+back.charging	{percent}%，充电中
+back.unknown	未知
+back.screen.value	{width} × {height} · {levels} 级灰
+back.input.touch	触摸 + 按键
+back.input.keys	按键
+back.none	无
+back.stamps.value	{n} / {total} 枚 · 最高 {best} 题
+back.lock	设为锁屏
+back.lock.done	锁屏已是这张明信片
+back.hint.touch	点按空白处或按返回键回到正面
+back.hint.keys	OK 设为锁屏 · 返回键回到正面
+back.hint.plain	按 OK 或返回键回到正面
+quiz.progress	第 {n} / {total} 题
+quiz.best	最高 {best}
+quiz.score	得分 {score} · 连对 {streak}
+quiz.ask	这是哪种语言？
+quiz.right	答对了！
+quiz.stamp	集到「{lang}」邮票！
+quiz.wrong	是{lang}
+quiz.streak	连对 {streak} 题！
+quiz.done.title	这一局结束了
+quiz.done.record	新纪录！
+quiz.done.body	答对 {score} / {total} 题 · 集邮 {stamps} / {all}
+quiz.done.result	{score} / {total}
+quiz.done.stamps	集邮 {stamps} / {all}
+quiz.done.touch	点按再来一局
+quiz.done.keys	OK 再来一局
+quiz.again	再来一局
+quiz.home	回主页
+lock.date	{month}月{day}日 {weekday}
+lock.footer	今天的问候 · 每天换一种语言
+weekday.0	星期日
+weekday.1	星期一
+weekday.2	星期二
+weekday.3	星期三
+weekday.4	星期四
+weekday.5	星期五
+weekday.6	星期六
+lang.zh	中文
+lang.en	英语
+lang.ja	日语
+lang.fr	法语
+lang.es	西班牙语
+lang.de	德语
+lang.it	意大利语
+lang.pt	葡萄牙语
+lang.ru	俄语
+lang.el	希腊语
+lang.vi	越南语
+lang.tr	土耳其语
