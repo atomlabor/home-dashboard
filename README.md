@@ -4,7 +4,7 @@
 
 Your Home Assistant, calm and readable on e-ink. An unofficial Home Assistant companion for the **Xteink X4 Pro** and **X4 Classic**, built with InkApp AI Studio.
 
-**[Download homedash.xtapp](dist/homedash.xtapp)** · version 1.4.0
+**[Download homedash.xtapp](dist/homedash.xtapp)** · version 1.3.2
 
 [![Support me on Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20this%20app-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/atomlabor)
 
